@@ -137,6 +137,18 @@ prints the preserved maintainer scripts.
 collisions only; archive path checks still apply. Update or remove packages
 with `upgradepkg` and `removepkg`.
 
+## native builds
+
+`recipes/` contains Slackware-current builds for the RPM verifier, configurable
+doas, Limine, Niri, Waybar and owendots controls. LLVM and Vulkan runtime recipes
+extract named library files from verified official packages. Remove those split
+runtime packages before installing the corresponding full development packages.
+
+The `native packages` workflow builds in Slackware-current under Podman and
+retains package artifacts, source archives and the signed-current package
+snapshot hashes. Select one job or `all`. Native build recipes use pinned source
+checksums; dependency choices belong to these recipes, not the import CLI.
+
 ## license
 
 [Unlicense](LICENSE). Upstream packages retain their own licenses.

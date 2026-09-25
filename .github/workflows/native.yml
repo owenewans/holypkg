@@ -6,7 +6,7 @@ on:
         description: Package job
         type: choice
         default: all
-        options: [all, niri, waybar, runtimes, packages]
+        options: [all, niri, waybar, owenctl, runtimes, packages]
 permissions:
   contents: read
 jobs:
@@ -56,6 +56,38 @@ jobs:
             ${{ runner.temp }}/packages/*
             ${{ runner.temp }}/sources/*
             ${{ runner.temp }}/slackware-waybar/snapshot.sha256
+  owenctl:
+    if: inputs.target == 'all' || inputs.target == 'owenctl'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: owenewans/owendots
+          ref: 96c02caaf535a7641cbecd305da40f8feec0685a
+          path: owendots-source
+      - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
+      - run: |
+          printf 'gcc-g++\ncmake\nlibuv\nSDL3\n' > "$RUNNER_TEMP/gui.packages"
+          python3 tests/slackware.py --profile "$RUNNER_TEMP/gui.packages" --prepare-only --work "$RUNNER_TEMP/slackware-gui"
+      - name: Fetch GUI build sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/sources" "$RUNNER_TEMP/packages"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/raysan5/raylib/archive/refs/tags/6.0.tar.gz -o "$RUNNER_TEMP/sources/raylib-6.0.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/raysan5/raygui/archive/refs/tags/5.0.tar.gz -o "$RUNNER_TEMP/sources/raygui-5.0.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o "$RUNNER_TEMP/sources/zig-x86_64-linux-0.16.0.tar.xz"
+          tar --exclude=.git -cJf "$RUNNER_TEMP/sources/owendots-96c02ca.tar.xz" owendots-source
+      - name: Build desktop controls
+        run: |
+          podman run --rm --env SOURCES=/sources --env OWENDOTS=/src/owendots-source --env OUTPUT=/output --env WORK=/tmp/owenctl-build --env JOBS=2 -v "$PWD:/src:ro" -v "$RUNNER_TEMP/sources:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh /src/recipes/owenctl.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: owenctl-development
+          path: |
+            ${{ runner.temp }}/packages/*
+            ${{ runner.temp }}/sources/*
+            ${{ runner.temp }}/slackware-gui/snapshot.sha256
   runtimes:
     if: inputs.target == 'all' || inputs.target == 'runtimes'
     runs-on: ubuntu-24.04
