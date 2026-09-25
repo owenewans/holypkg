@@ -12,6 +12,7 @@ parser.add_argument('--work', type=pathlib.Path, required=True)
 parser.add_argument('--mirror', default='https://slackware.osuosl.org/slackware64-current')
 parser.add_argument('--build-tools', action='store_true')
 parser.add_argument('--prepare-only', action='store_true')
+parser.add_argument('--profile', type=pathlib.Path, help='additional explicit build packages')
 args = parser.parse_args()
 work = args.work.resolve()
 work.mkdir(parents=True, exist_ok=True)
@@ -69,6 +70,11 @@ python3 sqlite libtirpc readline expat rpm cpio libssh2 gnutls nettle libtasn1
 p11-kit lz4 lua icu4c cyrus-sasl kernel-headers elfutils lzlib'''.split()
 if args.build_tools:
     names.extend('gcc-g++ cmake rust popt libuv bison flex ninja llvm libedit scdoc gettext-tools guile gc'.split())
+if args.profile:
+    names.extend(line.strip() for line in args.profile.read_text().splitlines() if line.strip() and not line.startswith('#'))
+names = list(dict.fromkeys(names))
+if set(names) - catalog.keys():
+    raise SystemExit('unknown explicit packages: ' + str(sorted(set(names) - catalog.keys())))
 cache = work / 'current-packages'
 cache.mkdir(exist_ok=True)
 expected = {pathlib.Path(catalog[name]).name for name in names}

@@ -4,6 +4,28 @@ on:
 permissions:
   contents: read
 jobs:
+  niri:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
+      - run: python3 tests/slackware.py --build-tools --profile recipes/niri.packages --prepare-only --work "$RUNNER_TEMP/slackware-niri"
+      - name: Fetch compositor sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/sources" "$RUNNER_TEMP/packages"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/niri-wm/niri/archive/refs/tags/v26.04.tar.gz -o "$RUNNER_TEMP/sources/niri-26.04.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://gitlab.freedesktop.org/emersion/libdisplay-info/-/archive/0.3.0/libdisplay-info-0.3.0.tar.gz -o "$RUNNER_TEMP/sources/libdisplay-info-0.3.0.tar.gz"
+      - name: Build Niri without systemd integration
+        run: |
+          podman run --rm --env CARGO_HTTP_CAINFO=/host-ca.pem --env CURL_CA_BUNDLE=/host-ca.pem -v /etc/ssl/certs/ca-certificates.crt:/host-ca.pem:ro --env SOURCES=/sources --env OUTPUT=/output --env WORK=/tmp/niri-build --env JOBS=2 -v "$PWD:/src:ro" -v "$RUNNER_TEMP/sources:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh /src/recipes/niri.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: niri-development
+          path: |
+            ${{ runner.temp }}/packages/*
+            ${{ runner.temp }}/sources/*
+            ${{ runner.temp }}/slackware-niri/snapshot.sha256
   packages:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
