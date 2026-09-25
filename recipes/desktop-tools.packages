@@ -43,8 +43,6 @@ libXrandr
 libXrender
 libXres
 libXtst
-libavif
-libde265
 libdeflate
 libdisplay-info
 libdrm
@@ -52,7 +50,6 @@ libepoxy
 libevdev
 libglvnd
 libgudev
-libheif
 libinput
 libjpeg-turbo
 libjxl
