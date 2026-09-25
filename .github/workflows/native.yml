@@ -69,7 +69,7 @@ jobs:
           path: owendots-source
       - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
       - run: |
-          printf 'gcc-g++\ncmake\nlibuv\nSDL3\n' > "$RUNNER_TEMP/gui.packages"
+          printf 'gcc-g++\ncmake\nlibuv\nSDL3\nflex\n' > "$RUNNER_TEMP/gui.packages"
           python3 tests/slackware.py --profile "$RUNNER_TEMP/gui.packages" --prepare-only --work "$RUNNER_TEMP/slackware-gui"
       - name: Fetch GUI build sources
         run: |
