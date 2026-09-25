@@ -80,4 +80,5 @@ wayland-protocols
 wireplumber
 xcb-util-wm
 xkeyboard-config
+xorg-server-xwayland
 xorgproto
