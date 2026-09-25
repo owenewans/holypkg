@@ -20,7 +20,7 @@ jobs:
           curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/Limine-Bootloader/Limine/releases/download/v12.9.0/limine-binary.tar.xz -o "$RUNNER_TEMP/sources/limine-binary-12.9.0.tar.xz"
       - name: Build native Slackware package
         run: |
-          podman run --rm --env SOURCES=/sources --env OUTPUT=/output --env WORK=/tmp/build --env JOBS=2 --env CARGO_BUILD_JOBS=2 -v "$PWD:/src:ro" -v "$RUNNER_TEMP/sources:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh -c 'sh /src/recipes/rpm-tools.sh && installpkg /output/holypkg-rpm-tools-6.1.0-x86_64-1_owen.txz && python3 /src/tests/rpm-verifier.py /tmp/build/rpm-build/tools/rpmsign && WORK=/tmp/doas-build sh /src/recipes/doas.sh && installpkg /output/owendoas-6.8.2_b96106b-x86_64-1_owen.txz && python3 /src/tests/doas.py && WORK=/tmp/limine-build sh /src/recipes/limine.sh'
+          podman run --rm --env CARGO_HTTP_CAINFO=/host-ca.pem --env CURL_CA_BUNDLE=/host-ca.pem -v /etc/ssl/certs/ca-certificates.crt:/host-ca.pem:ro --env SOURCES=/sources --env OUTPUT=/output --env WORK=/tmp/build --env JOBS=2 --env CARGO_BUILD_JOBS=2 -v "$PWD:/src:ro" -v "$RUNNER_TEMP/sources:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh -c 'sh /src/recipes/rpm-tools.sh && installpkg /output/holypkg-rpm-tools-6.1.0-x86_64-1_owen.txz && python3 /src/tests/rpm-verifier.py /tmp/build/rpm-build/tools/rpmsign && WORK=/tmp/doas-build sh /src/recipes/doas.sh && installpkg /output/owendoas-6.8.2_b96106b-x86_64-1_owen.txz && python3 /src/tests/doas.py && WORK=/tmp/limine-build sh /src/recipes/limine.sh'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: native-packages-development
