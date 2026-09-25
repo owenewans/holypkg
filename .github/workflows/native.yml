@@ -6,7 +6,7 @@ on:
         description: Package job
         type: choice
         default: all
-        options: [all, niri, waybar, owenctl, runtimes, packages]
+        options: [all, niri, waybar, owenctl, desktop-tools, runtimes, packages]
 permissions:
   contents: read
 jobs:
@@ -133,3 +133,28 @@ jobs:
             ${{ runner.temp }}/packages/*.txz
             ${{ runner.temp }}/sources/*
             ${{ runner.temp }}/slackware-native/snapshot.sha256
+  desktop-tools:
+    if: inputs.target == 'all' || inputs.target == 'desktop-tools'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
+      - run: python3 tests/slackware.py --build-tools --profile recipes/desktop-tools.packages --prepare-only --work "$RUNNER_TEMP/slackware-tools"
+      - name: Fetch desktop sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/sources" "$RUNNER_TEMP/packages"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0.tar.xz -o "$RUNNER_TEMP/sources/aria2-1.37.0.tar.xz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://gitlab.freedesktop.org/emersion/grim/-/archive/v1.5.0/grim-v1.5.0.tar.gz -o "$RUNNER_TEMP/sources/grim-1.5.0.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/artemsen/swayimg/archive/refs/tags/v5.6.tar.gz -o "$RUNNER_TEMP/sources/swayimg-5.6.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/dawsers/scroll/archive/refs/tags/1.12.21.tar.gz -o "$RUNNER_TEMP/sources/scroll-1.12.21.tar.gz"
+      - name: Build native desktop utilities and scroll
+        run: |
+          podman run --rm --env SOURCES=/sources --env OUTPUT=/output --env WORK=/tmp/tools-build --env JOBS=2 -v "$PWD:/src:ro" -v "$RUNNER_TEMP/sources:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh -c 'sh /src/recipes/desktop-tools.sh && WORK=/tmp/scroll-build sh /src/recipes/scroll.sh'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-tools-development
+          path: |
+            ${{ runner.temp }}/packages/*
+            ${{ runner.temp }}/sources/*
+            ${{ runner.temp }}/slackware-tools/snapshot.sha256
