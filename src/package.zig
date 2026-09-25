@@ -12,6 +12,8 @@ pub const Metadata = struct {
     architecture: []const u8,
     source: []const u8,
     sha256: []const u8,
+    source_checksum: []const u8 = "",
+    source_checksum_algorithm: []const u8 = "sha256",
     signature_verified: bool = false,
     description: []const u8 = "foreign binary package",
 };
@@ -44,6 +46,7 @@ pub fn validate(m: Metadata) !void {
     if (!sys.safeName(m.name)) return error.InvalidPackageName;
     if (m.version.len == 0) return error.InvalidVersion;
     for (m.version) |ch| if (!std.ascii.isAlphanumeric(ch) and std.mem.indexOfScalar(u8, ".+-_:~", ch) == null) return error.InvalidVersion;
+    for (m.description) |ch| if (ch < 32 or ch == 127) return error.InvalidDescription;
     if (!std.mem.eql(u8, m.architecture, "x86_64") and !std.mem.eql(u8, m.architecture, "any") and !std.mem.eql(u8, m.architecture, "noarch") and !std.mem.eql(u8, m.architecture, "amd64") and !std.mem.eql(u8, m.architecture, "all")) return error.UnsupportedArchitecture;
     const providers = [_][]const u8{ "arch", "artix", "debian", "ubuntu", "fedora", "opensuse", "github", "url" };
     for (providers) |provider| if (std.mem.eql(u8, m.provider, provider)) return;
@@ -52,10 +55,13 @@ pub fn validate(m: Metadata) !void {
 
 pub fn filename(c: Context, m: Metadata) ![]const u8 {
     try validate(m);
-    const version = try c.a.dupe(u8, m.version);
-    for (version) |*ch| if (ch.* == '-' or ch.* == ':' or ch.* == '~') {
-        ch.* = '_';
-    };
+    var encoded: std.Io.Writer.Allocating = .init(c.a);
+    for (m.version) |ch| {
+        if (ch == '-' or ch == ':' or ch == '~' or ch == '+') {
+            try encoded.writer.print("+{x:0>2}", .{ch});
+        } else try encoded.writer.writeByte(ch);
+    }
+    const version = encoded.written();
     const arch = if (std.mem.eql(u8, m.architecture, "any") or std.mem.eql(u8, m.architecture, "all") or std.mem.eql(u8, m.architecture, "noarch")) "noarch" else "x86_64";
     const tag = if (std.mem.eql(u8, m.provider, "github")) "gh" else m.provider;
     return c.fmt("{s}-{s}-{s}-1_holy{s}.txz", .{ m.name, version, arch, tag });
@@ -84,9 +90,18 @@ pub fn finishStage(c: Context, stage: []const u8, m: Metadata, entries: []archiv
     try c.write(try c.fmt("{s}/package.json", .{stage}), json);
     try c.write(try c.fmt("{s}/{s}/provenance.json", .{ root, doc }), json);
     const reserved = [_][]const u8{ ".PKGINFO", ".BUILDINFO", ".MTREE", ".INSTALL", ".CHANGELOG", "install" };
+    var payload: std.Io.Writer.Allocating = .init(c.a);
+    for (entries) |entry| {
+        var metadata = false;
+        for (reserved) |name| {
+            if (std.mem.eql(u8, entry.path, name) or (std.mem.eql(u8, name, "install") and std.mem.startsWith(u8, entry.path, "install/"))) metadata = true;
+        }
+        if (!metadata) try payload.writer.print("{s}\n", .{entry.path});
+    }
+    try c.write(try c.fmt("{s}/payload.list", .{stage}), payload.written());
     for (reserved) |name| {
         var exists = false;
-        for (entries) |entry| if (std.mem.eql(u8, entry.path, name)) {
+        for (entries) |entry| if (std.mem.eql(u8, entry.path, name) or (std.mem.eql(u8, name, "install") and std.mem.startsWith(u8, entry.path, "install/"))) {
             exists = true;
             break;
         };
@@ -146,8 +161,9 @@ pub fn pack(c: Context, stage: []const u8, output: []const u8) ![]const u8 {
         f.close(c.io);
         try c.print("install/doinst.sh is present; pkgtools will execute it during installation.\n", .{});
     }
-    const uid = std.mem.trim(u8, try c.capture(&.{ "id", "-u" }), "\r\n");
-    const command: []const []const u8 = if (std.mem.eql(u8, uid, "0")) &.{ "makepkg", "-l", "n", "-c", "y", dest } else &.{ "fakeroot", "makepkg", "-l", "n", "-c", "y", dest };
+    // Payload ownership is root:root (foreign ownership requires manual handling).
+    // Set tar header ownership without changing staging modes or requiring root.
+    const command: []const []const u8 = &.{ "env", "TAR_OPTIONS=--owner=0 --group=0 --numeric-owner", "makepkg", "-l", "n", "-c", "n", dest };
     var child = try std.process.spawn(c.io, .{
         .argv = command,
         .cwd = .{ .path = root },

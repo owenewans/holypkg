@@ -3,14 +3,17 @@ const std = @import("std");
 pub const Context = struct {
     a: std.mem.Allocator,
     io: std.Io,
+    quiet: bool = false,
 
     pub fn fmt(c: Context, comptime format: []const u8, args: anytype) ![]const u8 {
         return std.fmt.allocPrint(c.a, format, args);
     }
 
     pub fn print(c: Context, comptime format: []const u8, args: anytype) !void {
+        if (c.quiet) return;
         const message = try c.fmt(format, args);
-        try std.Io.File.stdout().writeStreamingAll(c.io, message);
+        const output = if (@import("builtin").is_test) std.Io.File.stderr() else std.Io.File.stdout();
+        try output.writeStreamingAll(c.io, message);
     }
 
     pub fn read(c: Context, path: []const u8) ![]const u8 {
@@ -23,6 +26,7 @@ pub const Context = struct {
     }
 
     pub fn capture(c: Context, argv: []const []const u8) ![]const u8 {
+        try validateArgv(argv);
         const result = try std.process.run(c.a, c.io, .{
             .argv = argv,
             .stdout_limit = .limited(128 * 1024 * 1024),
@@ -36,14 +40,27 @@ pub const Context = struct {
     }
 
     pub fn run(c: Context, argv: []const []const u8) !void {
+        try validateArgv(argv);
         var child = try std.process.spawn(c.io, .{ .argv = argv });
         const term = try child.wait(c.io);
         if (term != .exited or term.exited != 0) return error.CommandFailed;
     }
 
     pub fn saveOutput(c: Context, argv: []const []const u8, path: []const u8) !void {
+        try validateArgv(argv);
         const file = try std.Io.Dir.cwd().createFile(c.io, path, .{});
         defer file.close(c.io);
+        var child = try std.process.spawn(c.io, .{ .argv = argv, .stdout = .{ .file = file } });
+        const term = try child.wait(c.io);
+        if (term != .exited or term.exited != 0) return error.CommandFailed;
+    }
+
+    pub fn copyNew(c: Context, source: []const u8, destination: []const u8) !void {
+        const file = try std.Io.Dir.cwd().createFile(c.io, destination, .{ .exclusive = true });
+        defer file.close(c.io);
+        errdefer std.Io.Dir.cwd().deleteFile(c.io, destination) catch {};
+        const argv: []const []const u8 = &.{ "cat", "--", source };
+        try validateArgv(argv);
         var child = try std.process.spawn(c.io, .{ .argv = argv, .stdout = .{ .file = file } });
         const term = try child.wait(c.io);
         if (term != .exited or term.exited != 0) return error.CommandFailed;
@@ -68,6 +85,15 @@ pub const Context = struct {
         return output[0..64];
     }
 
+    pub fn verificationKey(c: Context, source: []const u8, work: []const u8) ![]const u8 {
+        const path = try c.absolute(source);
+        const data = try c.read(path);
+        if (!std.mem.startsWith(u8, data, "-----BEGIN PGP PUBLIC KEY BLOCK-----")) return path;
+        const binary = try c.fmt("{s}/verification-key.gpg", .{work});
+        try c.run(&.{ "gpg", "--batch", "--yes", "--dearmor", "--output", binary, "--", path });
+        return binary;
+    }
+
     pub fn prompt(c: Context, message: []const u8) ![]const u8 {
         const tty = std.Io.Dir.cwd().openFile(c.io, "/dev/tty", .{ .mode = .read_write }) catch return error.InteractiveSelectionRequired;
         defer tty.close(c.io);
@@ -78,6 +104,16 @@ pub const Context = struct {
         return c.a.dupe(u8, std.mem.trim(u8, line, "\r \t"));
     }
 };
+
+pub fn validateArgv(argv: []const []const u8) !void {
+    if (argv.len == 0 or argv[0].len == 0) return error.InvalidCommand;
+    for (argv) |arg| if (std.mem.indexOfScalar(u8, arg, 0) != null) return error.NulInArgument;
+}
+
+test "process arguments cannot contain embedded NUL" {
+    try validateArgv(&.{ "find", "a b", "%P\\0" });
+    try std.testing.expectError(error.NulInArgument, validateArgv(&.{ "find", "%P\x00" }));
+}
 
 pub fn safeName(name: []const u8) bool {
     if (name.len == 0 or name[0] == '-') return false;

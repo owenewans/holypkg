@@ -38,7 +38,7 @@ def convert(source, stage):
 with tempfile.TemporaryDirectory(prefix="holypkg-test-") as tmp:
     tmp = pathlib.Path(tmp)
     source = tmp / "sample.pkg.tar"
-    make(source, [("usr/bin/alias", b"", tarfile.SYMTYPE, "sample")])
+    make(source, [("usr/bin/alias", b"", tarfile.SYMTYPE, "sample"), ("install/doinst.sh", b"touch /tmp/foreign-script\n", None, "")])
     stage = tmp / "stage"
     result = convert(source, stage)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -47,6 +47,8 @@ with tempfile.TemporaryDirectory(prefix="holypkg-test-") as tmp:
     assert metadata["version"] == "1:2.0-3"
     assert (stage / "root/usr/bin/alias").is_symlink()
     assert not (stage / "root/.INSTALL").exists()
+    assert not (stage / "root/install/doinst.sh").exists()
+    assert (stage / "root/usr/doc/sample/holypkg/original/install/doinst.sh").is_file()
     assert (stage / "root/usr/doc/sample/holypkg/original/.INSTALL").read_text().startswith("touch")
     assert len((stage / "root/install/slack-desc").read_text().splitlines()) == 11
     assert convert(source, stage).returncode != 0, "existing stage overwritten"

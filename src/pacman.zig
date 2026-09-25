@@ -95,7 +95,7 @@ pub fn fetch(c: Context, candidate: *Candidate, options: Options, directory: []c
     if (!std.ascii.eqlIgnoreCase(digest, candidate.metadata.sha256)) return error.ChecksumMismatch;
     const sig = try c.fmt("{s}.sig", .{dest});
     try c.download(try c.fmt("{s}.sig", .{candidate.metadata.source}), sig);
-    try c.run(&.{ "gpgv", "--keyring", try c.absolute(options.keyring), "--", sig, dest });
+    try c.run(&.{ "gpgv", "--keyring", try c.verificationKey(options.keyring, directory), "--", sig, dest });
     candidate.metadata.signature_verified = true;
     return dest;
 }

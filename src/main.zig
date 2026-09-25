@@ -5,12 +5,16 @@ const archive = @import("archive.zig");
 const pacman = @import("pacman.zig");
 const foreign = @import("foreign.zig");
 const inspect = @import("inspect.zig");
+const repositories = @import("repository.zig");
+const keys = @import("keys.zig");
 
 const usage =
     \\holypkg - foreign binary packages to native Slackware packages
     \\
     \\holypkg arch|artix PACKAGE [--repo REPO] [--testing]
-    \\holypkg info|deps|files|fetch arch|artix PACKAGE
+    \\holypkg info|deps|files|fetch PROVIDER PACKAGE
+    \\holypkg debian|ubuntu|fedora|opensuse PACKAGE [--suite SUITE] [--repo REPO]
+    \\holypkg key add FILE --fingerprint HEX --keyring OUTPUT
     \\holypkg convert FILE --provider PROVIDER [--stage [DIRECTORY]]
     \\holypkg pack STAGE [--output DIRECTORY]
     \\holypkg inspect|scripts FILE --provider PROVIDER
@@ -46,6 +50,8 @@ const Options = struct {
     sha256: ?[]const u8 = null,
     asset: ?[]const u8 = null,
     release: []const u8 = "latest",
+    suite: ?[]const u8 = null,
+    fingerprint: ?[]const u8 = null,
 
     fn parse(c: sys.Context, args: []const []const u8) !Options {
         var o: Options = .{ .positional = &.{} };
@@ -81,7 +87,15 @@ const Options = struct {
                 if (i + 1 >= args.len or std.mem.startsWith(u8, args[i + 1], "--")) return error.MissingOptionValue;
                 i += 1;
                 const val = args[i];
-                if (std.mem.eql(u8, arg, "--provider")) o.provider = val else if (std.mem.eql(u8, arg, "--repo")) o.repo = val else if (std.mem.eql(u8, arg, "--mirror")) o.mirror = val else if (std.mem.eql(u8, arg, "--keyring")) o.keyring = val else if (std.mem.eql(u8, arg, "--output")) o.output = val else if (std.mem.eql(u8, arg, "--root")) o.root = val else if (std.mem.eql(u8, arg, "--name")) o.name = val else if (std.mem.eql(u8, arg, "--version")) o.version = val else if (std.mem.eql(u8, arg, "--prefix")) o.prefix = val else if (std.mem.eql(u8, arg, "--sha256")) o.sha256 = val else if (std.mem.eql(u8, arg, "--asset")) o.asset = val else if (std.mem.eql(u8, arg, "--release")) o.release = val else return error.UnknownOption;
+                const fields = .{ .{ "--provider", "provider" }, .{ "--repo", "repo" }, .{ "--mirror", "mirror" }, .{ "--keyring", "keyring" }, .{ "--output", "output" }, .{ "--root", "root" }, .{ "--name", "name" }, .{ "--version", "version" }, .{ "--prefix", "prefix" }, .{ "--sha256", "sha256" }, .{ "--asset", "asset" }, .{ "--release", "release" }, .{ "--suite", "suite" }, .{ "--fingerprint", "fingerprint" } };
+                var recognized = false;
+                inline for (fields) |field| {
+                    if (std.mem.eql(u8, arg, field[0])) {
+                        @field(o, field[1]) = val;
+                        recognized = true;
+                    }
+                }
+                if (!recognized) return error.UnknownOption;
             } else try positional.append(c.a, arg);
         }
         o.positional = try positional.toOwnedSlice(c.a);
@@ -112,6 +126,13 @@ fn convert(c: sys.Context, source: []const u8, provider: []const u8, stage: []co
         };
         try foreign.stageGeneric(c, source, stage, m, o.prefix orelse return error.PrefixRequired, o.privileged);
     } else return error.UnknownProvider;
+    if (metadata) |m| {
+        const actual = try package.readStage(c, stage);
+        if (!is(actual.name, m.name) or !is(actual.version, m.version) or !is(actual.sha256, m.sha256)) return error.RepositoryMetadataMismatch;
+        const json = try std.json.Stringify.valueAlloc(c.a, m, .{ .whitespace = .indent_2 });
+        try c.write(try c.fmt("{s}/package.json", .{stage}), json);
+        try c.write(try c.fmt("{s}/root/usr/doc/{s}/holypkg/provenance.json", .{ stage, m.name }), json);
+    }
 }
 
 fn finish(c: sys.Context, stage: []const u8, o: Options) !void {
@@ -156,8 +177,22 @@ fn execute(c: sys.Context, args: []const []const u8) !void {
     if (p.len == 0 or is(p[0], "--help")) return c.print("{s}", .{usage});
     if (p.len < 2) return error.MissingArgument;
     const action = p[0];
+    const readonly = is(action, "info") or is(action, "deps") or is(action, "files") or is(action, "fetch") or is(action, "inspect") or is(action, "scripts") or is(action, "collisions") or is(action, "key");
+    if (readonly and (o.install or o.keep_stage or o.force)) return error.OptionNotValidForCommand;
+    if (o.force and !o.install) return error.ForceRequiresInstall;
+    if (is(action, "key")) {
+        if (p.len != 3 or !is(p[1], "add")) return error.ExpectedKeyAddFile;
+        return keys.add(c, p[2], o.fingerprint orelse return error.FullFingerprintRequired, o.keyring orelse return error.KeyringOutputRequired);
+    }
     if (is(action, "pack")) {
-        _ = try package.pack(c, p[1], o.output);
+        if (p.len != 2 or o.keep_stage) return error.InvalidPackArguments;
+        if (o.install) {
+            if (!is(o.root, "/")) return error.InstallIntoAlternateRootUnsupported;
+            const count = try inspect.collisions(c, try c.fmt("{s}/root", .{p[1]}), "/");
+            if (count > 0 and !o.force) return error.FilesystemCollisions;
+        }
+        const output = try package.pack(c, p[1], o.output);
+        if (o.install) try c.run(&.{ "doas", "installpkg", output });
         return;
     }
     if (is(action, "collisions")) {
@@ -167,8 +202,9 @@ fn execute(c: sys.Context, args: []const []const u8) !void {
     const work = try c.temp();
     defer std.Io.Dir.cwd().deleteTree(c.io, work) catch {};
     const stage = o.stage orelse try c.fmt("{s}/stage", .{try c.temp()});
-    // A failed conversion retains its stage for diagnosis; no installed database is created.
+    // retain a failed conversion for inspection.
     if (is(action, "convert") or is(action, "inspect") or is(action, "scripts")) {
+        if (p.len != 2) return error.UnexpectedArgument;
         try convert(c, p[1], o.provider orelse return error.ProviderRequired, stage, o, null);
         if (is(action, "inspect")) {
             try inspect.elf(c, try c.fmt("{s}/root", .{stage}));
@@ -189,6 +225,7 @@ fn execute(c: sys.Context, args: []const []const u8) !void {
         return;
     }
     if (is(action, "github") or is(action, "url")) {
+        if (p.len != 2) return error.UnexpectedArgument;
         const url = if (is(action, "github")) try githubUrl(c, p[1], o, work) else p[1];
         const expected = o.sha256 orelse return error.ExpectedChecksumRequired;
         const path = try c.fmt("{s}/artifact", .{work});
@@ -209,8 +246,36 @@ fn execute(c: sys.Context, args: []const []const u8) !void {
     }
     const query = is(action, "info") or is(action, "deps") or is(action, "files") or is(action, "fetch");
     if (query and p.len != 3) return error.ExpectedProviderAndPackage;
+    if (!query and p.len != 2) return error.UnexpectedArgument;
     const provider = if (query) p[1] else action;
     const name = if (query) p[2] else p[1];
+    if (is(provider, "debian") or is(provider, "ubuntu") or is(provider, "fedora") or is(provider, "opensuse")) {
+        const opts: repositories.Options = .{
+            .provider = provider,
+            .name = name,
+            .repo = o.repo,
+            .suite = o.suite,
+            .mirror = o.mirror,
+            .keyring = o.keyring orelse try c.fmt("/etc/holypkg/keys/{s}.{s}", .{ provider, if (is(provider, "debian") or is(provider, "ubuntu")) "gpg" else "asc" }),
+        };
+        var candidate = if (is(provider, "debian") or is(provider, "ubuntu")) try repositories.deb(c, opts, work) else try repositories.rpm(c, opts, work);
+        if (is(action, "info")) return c.print("{s}\n", .{try std.json.Stringify.valueAlloc(c.a, candidate.metadata, .{ .whitespace = .indent_2 })});
+        if (is(action, "deps")) return c.print("Source repository metadata (no dependencies installed):\n{s}\n", .{candidate.original});
+        const source = try repositories.fetch(c, &candidate, opts, work);
+        if (is(action, "fetch")) {
+            try std.Io.Dir.cwd().createDirPath(c.io, o.output);
+            try c.copyNew(source, try c.fmt("{s}/{s}", .{ o.output, candidate.filename }));
+            return;
+        }
+        var conversion = c;
+        conversion.quiet = is(action, "files");
+        try convert(conversion, source, provider, stage, o, candidate.metadata);
+        if (is(action, "files")) {
+            try c.print("{s}", .{try c.read(try c.fmt("{s}/payload.list", .{stage}))});
+            try std.Io.Dir.cwd().deleteTree(c.io, stage);
+        } else try finish(c, stage, o);
+        return;
+    }
     const options: pacman.Options = .{
         .provider = provider,
         .name = name,
@@ -226,13 +291,15 @@ fn execute(c: sys.Context, args: []const []const u8) !void {
     if (is(action, "fetch")) {
         try std.Io.Dir.cwd().createDirPath(c.io, o.output);
         const output = try c.fmt("{s}/{s}", .{ o.output, candidate.filename });
-        try c.run(&.{ "cp", "--no-clobber", "--", source, output });
-        try c.run(&.{ "cp", "--no-clobber", "--", try c.fmt("{s}.sig", .{source}), try c.fmt("{s}.sig", .{output}) });
+        try c.copyNew(source, output);
+        try c.copyNew(try c.fmt("{s}.sig", .{source}), try c.fmt("{s}.sig", .{output}));
         return;
     }
-    try convert(c, source, provider, stage, o, candidate.metadata);
+    var conversion = c;
+    conversion.quiet = is(action, "files");
+    try convert(conversion, source, provider, stage, o, candidate.metadata);
     if (is(action, "files")) {
-        try inspect.tree(c, try c.fmt("{s}/root", .{stage}));
+        try c.print("{s}", .{try c.read(try c.fmt("{s}/payload.list", .{stage}))});
         try std.Io.Dir.cwd().deleteTree(c.io, stage);
     } else try finish(c, stage, o);
 }
@@ -255,4 +322,5 @@ test {
     std.testing.refAllDecls(archive);
     std.testing.refAllDecls(pacman);
     std.testing.refAllDecls(foreign);
+    std.testing.refAllDecls(repositories);
 }

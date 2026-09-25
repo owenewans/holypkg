@@ -3,7 +3,7 @@ const sys = @import("sys.zig");
 const Context = sys.Context;
 
 pub fn files(c: Context, root: []const u8) ![]const u8 {
-    return c.capture(&.{ "find", root, "-mindepth", "1", "-printf", "%y %P\x00" });
+    return c.capture(&.{ "find", root, "-mindepth", "1", "-printf", "%y %P\\0" });
 }
 
 pub fn tree(c: Context, root: []const u8) !void {
@@ -60,7 +60,7 @@ pub fn elf(c: Context, root: []const u8) !void {
 pub fn collisions(c: Context, root: []const u8, host: []const u8) !usize {
     const db = try c.fmt("{s}/var/lib/pkgtools/packages", .{std.mem.trimEnd(u8, host, "/")});
     var owners: std.StringHashMap([]const u8) = .init(c.a);
-    const names = c.capture(&.{ "find", db, "-maxdepth", "1", "-type", "f", "-printf", "%f\x00" }) catch return error.PkgtoolsDatabaseUnavailable;
+    const names = c.capture(&.{ "find", db, "-maxdepth", "1", "-type", "f", "-printf", "%f\\0" }) catch return error.PkgtoolsDatabaseUnavailable;
     var packages = std.mem.splitScalar(u8, names, 0);
     while (packages.next()) |name| {
         if (name.len == 0) continue;
