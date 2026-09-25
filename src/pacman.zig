@@ -18,6 +18,14 @@ pub const Candidate = struct {
     desc: []const u8,
 };
 
+fn safeFilename(filename: []const u8) bool {
+    if (filename.len == 0 or filename[0] == '-') return false;
+    for (filename) |ch| {
+        if (!std.ascii.isAlphanumeric(ch) and ch != '+' and ch != '_' and ch != '.' and ch != '-' and ch != ':') return false;
+    }
+    return std.mem.endsWith(u8, filename, ".pkg.tar.zst") or std.mem.endsWith(u8, filename, ".pkg.tar.xz") or std.mem.endsWith(u8, filename, ".pkg.tar.gz");
+}
+
 pub fn field(desc: []const u8, name: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, desc, '\n');
     while (lines.next()) |line| {
@@ -64,7 +72,7 @@ pub fn resolve(c: Context, options: Options, work: []const u8) !Candidate {
             const desc = try c.capture(&.{ "bsdtar", "-xOf", database, path });
             if (!std.mem.eql(u8, field(desc, "NAME") orelse "", options.name)) continue;
             const filename = field(desc, "FILENAME") orelse return error.MissingPackageFilename;
-            if (!sys.safeName(filename)) return error.InvalidPackageFilename;
+            if (!safeFilename(filename)) return error.InvalidPackageFilename;
             const metadata: package.Metadata = .{
                 .provider = options.provider,
                 .repository = repo,
@@ -111,4 +119,12 @@ test "repository fields preserve lists" {
     try std.testing.expectEqualStrings("foo", field(input, "NAME").?);
     try std.testing.expectEqualStrings("bar>=2\nbaz", field(input, "DEPENDS").?);
     try std.testing.expect(field(input, "MISSING") == null);
+}
+
+test "pacman filenames allow epoch without allowing URL or path injection" {
+    try std.testing.expect(safeFilename("wl-clipboard-1:2.3.0-1-x86_64.pkg.tar.zst"));
+    try std.testing.expect(!safeFilename("../foo.pkg.tar.zst"));
+    try std.testing.expect(!safeFilename("foo.pkg.tar.zst?other"));
+    try std.testing.expect(!safeFilename("foo.pkg.tar.zst#fragment"));
+    try std.testing.expect(!safeFilename("-foo.pkg.tar.zst"));
 }

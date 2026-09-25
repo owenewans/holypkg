@@ -60,17 +60,19 @@ shutil.copyfile(source, args[args.index("--output") + 1])
     for provider, repo in [("arch", "core"), ("artix", "system")]:
         directory = work / "mirror" / repo / "os/x86_64"
         directory.mkdir(parents=True)
-        filename = "fixture-1.0-1-any.pkg.tar.gz"
+        version = "1:1.0-1" if provider == "artix" else "1.0-1"
+        filename = f"fixture-{version}-any.pkg.tar.gz"
         package = directory / filename
-        archive(package, {".PKGINFO": b"pkgname = fixture\npkgver = 1.0-1\narch = any\n", "usr/share/fixture": b"payload\n"})
+        archive(package, {".PKGINFO": f"pkgname = fixture\npkgver = {version}\narch = any\n".encode(), "usr/share/fixture": b"payload\n"})
         digest = hashlib.sha256(package.read_bytes()).hexdigest()
-        archive(directory / (repo + ".db"), {"fixture-1.0-1/desc": f"%NAME%\nfixture\n\n%VERSION%\n1.0-1\n\n%ARCH%\nany\n\n%FILENAME%\n{filename}\n\n%SHA256SUM%\n{digest}\n\n%DEPENDS%\nnever-install-me\n\n".encode()})
+        archive(directory / (repo + ".db"), {f"fixture-{version}/desc": f"%NAME%\nfixture\n\n%VERSION%\n{version}\n\n%ARCH%\nany\n\n%FILENAME%\n{filename}\n\n%SHA256SUM%\n{digest}\n\n%DEPENDS%\nnever-install-me\n\n".encode()})
         run(*gpg, "--detach-sign", str(package))
         common = [provider, "fixture", "--repo", repo, "--mirror", "https://fixture.invalid", "--keyring", str(key)]
         stage = work / (provider + "-stage")
         run(binary, *common, "--stage", str(stage), env=env)
         metadata = json.loads((stage / "package.json").read_text())
         assert metadata["provider"] == provider and metadata["repository"] == repo
+        assert metadata["version"] == version
         assert metadata["signature_verified"] is True
         assert "never-install-me" in run(binary, "deps", *common, env=env)
         assert run(binary, "files", *common, env=env).strip() == "usr/share/fixture"
