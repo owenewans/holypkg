@@ -62,7 +62,7 @@ bzip2 coreutils cracklib dialog diffutils e2fsprogs elogind elvis etc file findu
 gawk gettext gmp gnupg grep gzip iproute2 libcgroup libpsl libpwquality libseccomp
 libunistring mpfr ncurses net-tools nvi openssl pam patch pcre pcre2 pkgtools
 procps-ng sed shadow slackpkg sysfsutils tar time tree utempter util-linux wget
-bin which xz libarchive zstd zlib curl ca-certificates libidn2 brotli nghttp2 nghttp3
+which xz libarchive zstd zlib curl ca-certificates libidn2 brotli nghttp2 nghttp3
 ngtcp2 openssl-solibs libffi libxml2 binutils gnupg2 libgcrypt libgpg-error libassuan
 npth pinentry libcap libcap-ng gcc glibc make m4 autoconf automake libtool pkgconf
 python3 sqlite libtirpc readline expat rpm cpio libssh2 gnutls nettle libtasn1
