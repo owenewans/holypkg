@@ -59,7 +59,7 @@ for record in (work / 'PACKAGES.TXT').read_text().split('PACKAGE NAME:  ')[1:]:
     location = re.search(r'PACKAGE LOCATION:  (.+)', record)[1].removeprefix('./')
     catalog[name.rsplit('-', 3)[0]] = location + '/' + name
 names = '''aaa_base aaa_glibc-solibs aaa_libraries aaa_terminfo acl attr bash bin
-bzip2 coreutils cracklib dialog diffutils e2fsprogs elogind elvis etc file findutils
+bzip2 coreutils cracklib dcron dialog diffutils e2fsprogs elogind elvis etc file findutils
 gawk gettext gmp gnupg grep gzip iproute2 libcgroup libpsl libpwquality libseccomp
 libunistring mpfr ncurses net-tools nvi openssl pam patch pcre pcre2 pkgtools
 procps-ng sed shadow slackpkg sysfsutils tar time tree utempter util-linux wget

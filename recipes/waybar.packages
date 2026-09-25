@@ -63,3 +63,5 @@ at-spi2-core
 gobject-introspection
 gsettings-desktop-schemas
 shared-mime-info
+libdeflate
+highway

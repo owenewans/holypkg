@@ -1,10 +1,17 @@
 name: native packages
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: Package job
+        type: choice
+        default: all
+        options: [all, niri, waybar, runtimes, packages]
 permissions:
   contents: read
 jobs:
   niri:
+    if: inputs.target == 'all' || inputs.target == 'niri'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
@@ -27,6 +34,7 @@ jobs:
             ${{ runner.temp }}/sources/*
             ${{ runner.temp }}/slackware-niri/snapshot.sha256
   waybar:
+    if: inputs.target == 'all' || inputs.target == 'waybar'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -49,6 +57,7 @@ jobs:
             ${{ runner.temp }}/sources/*
             ${{ runner.temp }}/slackware-waybar/snapshot.sha256
   runtimes:
+    if: inputs.target == 'all' || inputs.target == 'runtimes'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -68,6 +77,7 @@ jobs:
             ${{ runner.temp }}/packages/*
             ${{ runner.temp }}/slackware-runtime/snapshot.sha256
   packages:
+    if: inputs.target == 'all' || inputs.target == 'packages'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
