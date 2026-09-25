@@ -24,6 +24,7 @@ libXau
 libXdmcp
 libXext
 libXrender
+libXft
 libxcb
 cairo
 pango
