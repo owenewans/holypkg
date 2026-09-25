@@ -26,6 +26,47 @@ jobs:
             ${{ runner.temp }}/packages/*
             ${{ runner.temp }}/sources/*
             ${{ runner.temp }}/slackware-niri/snapshot.sha256
+  waybar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
+      - run: python3 tests/slackware.py --build-tools --profile recipes/waybar.packages --prepare-only --work "$RUNNER_TEMP/slackware-waybar"
+      - name: Fetch bar sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/sources" "$RUNNER_TEMP/packages"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/Alexays/Waybar/archive/refs/tags/0.15.0.tar.gz -o "$RUNNER_TEMP/sources/waybar-0.15.0.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/open-source-parsers/jsoncpp/archive/refs/tags/1.9.5.tar.gz -o "$RUNNER_TEMP/sources/jsoncpp-1.9.5.tar.gz"
+      - name: Build Waybar
+        run: |
+          podman run --rm --env SOURCES=/sources --env OUTPUT=/output --env WORK=/tmp/waybar-build --env JOBS=2 -v "$PWD:/src:ro" -v "$RUNNER_TEMP/sources:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh /src/recipes/waybar.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: waybar-development
+          path: |
+            ${{ runner.temp }}/packages/*
+            ${{ runner.temp }}/sources/*
+            ${{ runner.temp }}/slackware-waybar/snapshot.sha256
+  runtimes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
+      - run: |
+          printf 'llvm\nvulkan-sdk\n' > "$RUNNER_TEMP/runtime.packages"
+          python3 tests/slackware.py --profile "$RUNNER_TEMP/runtime.packages" --prepare-only --work "$RUNNER_TEMP/slackware-runtime"
+      - name: Extract native runtime packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/packages"
+          podman run --rm --env SOURCES=/sources --env OUTPUT=/output --env WORK=/tmp/llvm-runtime -v "$PWD:/src:ro" -v "$RUNNER_TEMP/slackware-runtime/current-packages:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh -c 'sh /src/recipes/llvm-runtime.sh && WORK=/tmp/vulkan-runtime sh /src/recipes/vulkan-runtime.sh'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: graphics-runtime-development
+          path: |
+            ${{ runner.temp }}/packages/*
+            ${{ runner.temp }}/slackware-runtime/snapshot.sha256
   packages:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
