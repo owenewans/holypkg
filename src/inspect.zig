@@ -14,7 +14,7 @@ pub fn tree(c: Context, root: []const u8) !void {
 }
 
 pub fn elf(c: Context, root: []const u8) !void {
-    const libraries = c.capture(&.{ "ldconfig", "-p" }) catch "";
+    const libraries = c.capture(&.{ "/sbin/ldconfig", "-p" }) catch "";
     var it = std.mem.splitScalar(u8, try files(c, root), 0);
     while (it.next()) |item| {
         if (item.len < 3 or item[0] != 'f') continue;

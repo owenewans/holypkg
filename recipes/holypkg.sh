@@ -9,7 +9,10 @@ mkdir -p "$OUTPUT" "$WORK"
 OUTPUT=$(realpath "$OUTPUT")
 WORK=$(realpath "$WORK")
 install -Dm755 "$project/zig-out/bin/holypkg" "$WORK/usr/bin/holypkg"
-install -d "$WORK/usr/doc/holypkg" "$WORK/install"
+install -d "$WORK/usr/doc/holypkg" "$WORK/install" "$WORK/etc/holypkg/keys"
+cp "$project/keyrings/arch.gpg" "$WORK/etc/holypkg/keys/arch.gpg"
+cp "$project/keyrings/artix.gpg" "$WORK/etc/holypkg/keys/artix.gpg"
+cp "$project/keyrings/README.md" "$WORK/usr/doc/holypkg/KEYRINGS.md"
 cp "$project/LICENSE" "$project/README.md" "$project/TESTING.md" "$WORK/usr/doc/holypkg/"
 cat > "$WORK/install/slack-desc" <<'EOF'
 holypkg: holypkg (foreign binary package importer)

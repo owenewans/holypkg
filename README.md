@@ -100,6 +100,11 @@ then export it from a downloaded bundle:
 holypkg key add downloaded-keys.asc --fingerprint FULL_FINGERPRINT --keyring provider.asc
 ```
 
+The Slackware package includes Arch and Artix public keyrings. Their versions
+and checksums are listed in [keyrings/README.md](keyrings/README.md). Missing
+keyrings produce a diagnostic with the expected path; holypkg does not fetch
+unknown signing keys.
+
 Pass the result with `--keyring provider.asc`. The command exports the selected
 primary key and its subkeys, preserves existing files and leaves global GnuPG
 trust untouched.

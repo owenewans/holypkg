@@ -10,6 +10,7 @@ import tempfile
 
 assert os.geteuid() != 0, "run as an unprivileged container user"
 binary = str(pathlib.Path(sys.argv[1]).resolve())
+os.environ["PATH"] = "/usr/bin:/bin"
 with tempfile.TemporaryDirectory(prefix="holypkg-rootless-") as temporary:
     work = pathlib.Path(temporary)
     source = work / "fixture.tar"

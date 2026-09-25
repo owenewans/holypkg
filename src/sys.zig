@@ -86,7 +86,13 @@ pub const Context = struct {
     }
 
     pub fn verificationKey(c: Context, source: []const u8, work: []const u8) ![]const u8 {
-        const path = try c.absolute(source);
+        const path = c.absolute(source) catch |err| switch (err) {
+            error.FileNotFound => {
+                try std.Io.File.stderr().writeStreamingAll(c.io, try c.fmt("Missing verification keyring: {s}\nInstall the provider keyring or pass --keyring FILE. Import a reviewed key with holypkg key add FILE --fingerprint FULL_FINGERPRINT --keyring OUTPUT.\n", .{source}));
+                return error.MissingVerificationKeyring;
+            },
+            else => return err,
+        };
         const data = try c.read(path);
         if (!std.mem.startsWith(u8, data, "-----BEGIN PGP PUBLIC KEY BLOCK-----")) return path;
         const binary = try c.fmt("{s}/verification-key.gpg", .{work});

@@ -166,7 +166,7 @@ pub fn pack(c: Context, stage: []const u8, output: []const u8) ![]const u8 {
     }
     // Payload ownership is root:root (foreign ownership requires manual handling).
     // Set tar header ownership without changing staging modes or requiring root.
-    const command: []const []const u8 = &.{ "env", "TAR_OPTIONS=--owner=0 --group=0 --numeric-owner", "makepkg", "-l", "n", "-c", "n", dest };
+    const command: []const []const u8 = &.{ "env", "TAR_OPTIONS=--owner=0 --group=0 --numeric-owner", "/sbin/makepkg", "-l", "n", "-c", "n", dest };
     var child = try std.process.spawn(c.io, .{
         .argv = command,
         .cwd = .{ .path = root },

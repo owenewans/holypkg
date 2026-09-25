@@ -149,7 +149,7 @@ fn finish(c: sys.Context, stage: []const u8, o: Options) !void {
         if (count > 0 and !o.force) return error.FilesystemCollisions;
     }
     const output = try package.pack(c, stage, o.output);
-    if (o.install) try c.run(&.{ "doas", "installpkg", output });
+    if (o.install) try c.run(&.{ "doas", "/sbin/installpkg", output });
     try std.Io.Dir.cwd().deleteTree(c.io, stage);
 }
 
@@ -197,7 +197,7 @@ fn execute(c: sys.Context, args: []const []const u8) !void {
             if (count > 0 and !o.force) return error.FilesystemCollisions;
         }
         const output = try package.pack(c, p[1], o.output);
-        if (o.install) try c.run(&.{ "doas", "installpkg", output });
+        if (o.install) try c.run(&.{ "doas", "/sbin/installpkg", output });
         return;
     }
     if (is(action, "collisions")) {
