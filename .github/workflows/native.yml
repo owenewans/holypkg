@@ -6,7 +6,7 @@ on:
         description: Package job
         type: choice
         default: all
-        options: [all, niri, waybar, owenctl, desktop-tools, runtimes, packages]
+        options: [all, niri, waybar, owenctl, desktop-tools, telegramtui, runtimes, packages]
 permissions:
   contents: read
 jobs:
@@ -158,3 +158,29 @@ jobs:
             ${{ runner.temp }}/packages/*
             ${{ runner.temp }}/sources/*
             ${{ runner.temp }}/slackware-tools/snapshot.sha256
+  telegramtui:
+    if: inputs.target == 'all' || inputs.target == 'telegramtui'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
+      - run: |
+          printf 'gcc-g++\ncmake\nlibuv\ngperf\n' > "$RUNNER_TEMP/telegram.packages"
+          python3 tests/slackware.py --profile "$RUNNER_TEMP/telegram.packages" --prepare-only --work "$RUNNER_TEMP/slackware-telegram"
+      - name: Fetch pinned Telegram sources and binary
+        run: |
+          mkdir -p "$RUNNER_TEMP/sources" "$RUNNER_TEMP/packages"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://codeload.github.com/tdlib/td/tar.gz/ea97bcdd3a15523c58ddfe772b4547187cf5bbeb -o "$RUNNER_TEMP/sources/tdlib-ea97bcdd.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://codeload.github.com/k4dy/telegramtui/tar.gz/refs/tags/v1.0.0 -o "$RUNNER_TEMP/sources/telegramtui-1.0.0.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/k4dy/telegramtui/releases/download/v1.0.0/telegramtui-1.0.0.jar -o "$RUNNER_TEMP/sources/telegramtui-1.0.0.jar"
+      - name: Build native TDLib and package TelegramTUI
+        run: |
+          podman run --rm --env SOURCES=/sources --env OUTPUT=/output --env WORK=/tmp/tdlib-build --env JOBS=2 -v "$PWD:/src:ro" -v "$RUNNER_TEMP/sources:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh -c 'sh /src/recipes/tdlib.sh && WORK=/tmp/telegramtui-package sh /src/recipes/telegramtui.sh'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: telegramtui-development
+          path: |
+            ${{ runner.temp }}/packages/*
+            ${{ runner.temp }}/sources/*
+            ${{ runner.temp }}/slackware-telegram/snapshot.sha256
