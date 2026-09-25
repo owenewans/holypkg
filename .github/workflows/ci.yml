@@ -32,6 +32,15 @@ jobs:
       - run: chmod +x zig-out/bin/holypkg
       - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
       - run: python3 tests/slackware.py --work "$RUNNER_TEMP/slackware-tests"
+      - name: Package and install the static CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/packages"
+          podman run --rm -v "$PWD:/src:ro" -v "$RUNNER_TEMP/packages:/output" -e OUTPUT=/output -e WORK=/tmp/package localhost/holypkg-current-tests sh /src/recipes/holypkg.sh
+          podman run --rm -v "$RUNNER_TEMP/packages:/packages:ro" localhost/holypkg-current-tests sh -c 'installpkg /packages/holypkg-0.1.0-x86_64-1_owen.txz && holypkg --help && removepkg holypkg'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: holypkg-slackware-development
+          path: ${{ runner.temp }}/packages/*.txz
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
