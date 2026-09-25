@@ -66,10 +66,10 @@ procps-ng sed shadow slackpkg sysfsutils tar time tree utempter util-linux wget
 which xz libarchive zstd zlib curl ca-certificates libidn2 brotli nghttp2 nghttp3
 ngtcp2 openssl-solibs libffi libxml2 binutils gnupg2 libgcrypt libgpg-error libassuan
 npth pinentry libcap libcap-ng gcc glibc make m4 autoconf automake libtool pkgconf
-python3 sqlite libtirpc readline expat rpm cpio libssh2 gnutls nettle libtasn1
+python3 sqlite guile gc libtirpc readline expat rpm cpio libssh2 gnutls nettle libtasn1
 p11-kit lz4 lua icu4c cyrus-sasl kernel-headers elfutils lzlib'''.split()
 if args.build_tools:
-    names.extend('gcc-g++ cmake rust popt libuv bison flex ninja llvm libedit scdoc gettext-tools guile gc'.split())
+    names.extend('gcc-g++ cmake rust popt libuv bison flex ninja llvm libedit scdoc gettext-tools'.split())
 if args.profile:
     names.extend(line.strip() for line in args.profile.read_text().splitlines() if line.strip() and not line.startswith('#'))
 names = list(dict.fromkeys(names))
