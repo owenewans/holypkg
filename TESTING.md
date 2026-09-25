@@ -16,6 +16,8 @@ Record actual outcomes here. A compiled provider is not a validated provider.
 - Live Fedora Rawhide and openSUSE Tumbleweed package lookup.
 - Signed Arch/Artix fixtures: bad signature rejection, explicit key fingerprint,
   separate provider provenance, dependency display, no-clobber fetch.
+- PAX ownership retention with explicit `--owner root`, including large UID/GID
+  values and unchanged rejection of unsafe archive paths.
 
 ## Passed in Slackware-current Podman
 
@@ -28,19 +30,24 @@ libarchive 3.8.9 and RPM 6.1.0. The old bootstrap image was upgraded before test
 - installpkg, upgradepkg and removepkg lifecycle, including obsolete-file removal,
   symlinks, configuration permissions and collision detection.
 
-## Known failure
+## Native RPM verification
 
-Live Fedora/openSUSE signature checks stop at key import with the current native
-RPM package. GnuPG reads both published keys; rpmkeys rejects them. The upstream
-SlackBuild disables Sequoia and RPM 6.1's dummy OpenPGP backend cannot import keys.
-No verification bypass is provided. Build and test a native verification helper.
+The stock RPM package cannot verify OpenPGP signatures. A private RPM 6.1.0 /
+rpm-sequoia 1.10.3 package built on current verifies live Fedora Rawhide and
+openSUSE Tumbleweed packages. Both converted hello packages were installed,
+executed and removed with pkgtools in a disposable current container. Rawhide
+currently signs the tested fc45 package with the Fedora 46 signing key.
+Unknown signing keys are rejected; no signature bypass is provided.
+Fresh signed RPM fixtures also verify that unsigned packages, unknown keys and
+modified payloads are rejected by the native verifier.
 
 ## Required before release
 
-- Reproducible Slackware-current CI integration.
-- Debian experimental repository tests.
-- Fedora Rawhide and openSUSE Tumbleweed metadata and RPM signature tests.
-- Exact GitHub asset and URL conversion tests with mismatched checksums.
+- GitHub Actions run 36085844848 passed static build, fixture tests and the five
+  Slackware-current test suites. Native verifier CI is being added separately.
+- Debian experimental package staging passed for libabsl20260817.
+- Exact GitHub asset and URL conversion passed for micro 2.0.15, including
+  pkgtools install, executable launch and removal. Add mismatched-checksum tests.
 - ELF, filesystem collision and hand-edited staging tests.
 - Audit resource limits, PAX attributes, RPM scripts and trust handling.
 - Native recipe CI and package repository generation.

@@ -12,6 +12,11 @@ pub const Entry = struct {
     attributes: bool,
 };
 
+pub const ExtractOptions = struct {
+    privileged: bool = false,
+    root_owner: bool = false,
+};
+
 fn text(bytes: []const u8) []const u8 {
     return bytes[0 .. std.mem.indexOfScalar(u8, bytes, 0) orelse bytes.len];
 }
@@ -43,6 +48,8 @@ pub fn audit(c: Context, tar_path: []const u8) ![]Entry {
     var override_path: ?[]const u8 = null;
     var override_link: ?[]const u8 = null;
     var override_size: ?u64 = null;
+    var override_uid: ?u64 = null;
+    var override_gid: ?u64 = null;
     var attributes = false;
     while (true) {
         var header: [512]u8 = undefined;
@@ -76,13 +83,16 @@ pub fn audit(c: Context, tar_path: []const u8) ![]Entry {
                     if (std.mem.eql(u8, key, "path")) override_path = value;
                     if (std.mem.eql(u8, key, "linkpath")) override_link = value;
                     if (std.mem.eql(u8, key, "size")) override_size = try std.fmt.parseInt(u64, value, 10);
-                    if (std.mem.indexOf(u8, key, "xattr") != null or std.mem.indexOf(u8, key, "acl") != null) attributes = true;
+                    if (std.mem.eql(u8, key, "uid")) override_uid = try std.fmt.parseInt(u64, value, 10);
+                    if (std.mem.eql(u8, key, "gid")) override_gid = try std.fmt.parseInt(u64, value, 10);
+                    if (std.mem.indexOf(u8, key, "xattr") != null or std.mem.indexOf(u8, key, "acl") != null or std.mem.indexOf(u8, key, "fflags") != null) attributes = true;
                     if (std.mem.startsWith(u8, key, "GNU.sparse")) return error.UnsupportedSparseArchive;
                     pos += length;
                 }
             }
         } else {
             size = override_size orelse size;
+            if (size > 16 * 1024 * 1024 * 1024) return error.ArchiveEntryTooLarge;
             const prefix = if (std.mem.startsWith(u8, header[257..263], "ustar")) text(header[345..500]) else "";
             const base = text(header[0..100]);
             const name = override_path orelse if (prefix.len == 0) base else try c.fmt("{s}/{s}", .{ prefix, base });
@@ -98,8 +108,8 @@ pub fn audit(c: Context, tar_path: []const u8) ![]Entry {
                     .link = try c.a.dupe(u8, clean(link)),
                     .kind = if (kind == 0) '0' else kind,
                     .mode = @intCast(try number(header[100..108])),
-                    .uid = try number(header[108..116]),
-                    .gid = try number(header[116..124]),
+                    .uid = override_uid orelse try number(header[108..116]),
+                    .gid = override_gid orelse try number(header[116..124]),
                     .attributes = attributes,
                 });
             }
@@ -107,6 +117,8 @@ pub fn audit(c: Context, tar_path: []const u8) ![]Entry {
             override_path = null;
             override_link = null;
             override_size = null;
+            override_uid = null;
+            override_gid = null;
             attributes = false;
         }
         try reader.discardAll64((512 - size % 512) % 512);
@@ -147,13 +159,13 @@ pub fn normalize(c: Context, source: []const u8, work: []const u8) !Archive {
     return .{ .tar = tar, .entries = try audit(c, tar) };
 }
 
-pub fn extract(c: Context, archive: Archive, destination: []const u8, allow_privileged: bool) !void {
+pub fn extract(c: Context, archive: Archive, destination: []const u8, options: ExtractOptions) !void {
     for (archive.entries) |entry| {
         if (entry.attributes) return error.ExtendedAttributesRequireManualHandling;
-        if (entry.uid != 0 or entry.gid != 0) return error.ForeignOwnershipRequiresManualHandling;
+        if ((entry.uid != 0 or entry.gid != 0) and !options.root_owner) return error.ForeignOwnershipRequiresManualHandling;
         if (entry.mode & 0o6000 != 0) {
             try c.print("privileged mode {o}: {s}\n", .{ entry.mode, entry.path });
-            if (!allow_privileged) return error.PrivilegedModeRequiresExplicitOption;
+            if (!options.privileged) return error.PrivilegedModeRequiresExplicitOption;
         }
     }
     try std.Io.Dir.cwd().createDirPath(c.io, destination);

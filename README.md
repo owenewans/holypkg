@@ -65,9 +65,12 @@ provided trust keys. RPM verification uses a disposable key-only store in the
 working directory; no foreign package is installed into it.
 
 The RPM backend requires an RPM build with working OpenPGP verification.
-The tested Slackware-current RPM 6.1.0 package cannot import the distribution
-signing keys; live RPM conversion currently stops rather than skip verification.
-A native verification-tool recipe is required before this backend is released.
+Slackware-current's RPM 6.1.0 package lacks that support. The native
+`holypkg-rpm-tools` recipe builds a private verifier with Sequoia, which holypkg
+uses at `/usr/libexec/holypkg-rpm/bin/rpmkeys`. It does not replace system RPM.
+Metadata queries use `--nosignature` because signature verification is a
+separate step; repository imports require that step to succeed first. Local
+`convert` never claims that a package's signature was verified.
 
 To select a public key from a downloaded key bundle, verify its full fingerprint
 through the provider's published trust information, then run:
@@ -105,8 +108,10 @@ holypkg github owner/project --release v1.0 --asset foo-linux.tar.xz \
 - No foreign maintainer script execution. Foreign `install/` is quarantined too.
 - No package database beyond Slackware's `/var/lib/pkgtools/`.
 - Archive traversal, duplicate entries and paths through links are rejected.
-- Special files, foreign ownership and extended attributes currently require
-  manual handling. Setuid/setgid modes require `--allow-privileged`.
+- Special files, extended attributes and RPM file capabilities require manual
+  handling. Foreign ownership requires explicit `--owner root`; original UID/GID
+  values are retained in `source-files.json`. Setuid/setgid modes require
+  `--allow-privileged`.
 - Existing configuration filenames are preserved; no automatic `.new` rewrite.
 - A manually added `install/doinst.sh` is reported when packing. Pkgtools will
   execute it if the user installs that package.

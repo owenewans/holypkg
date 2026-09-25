@@ -1,0 +1,82 @@
+--- a/pam.c
++++ b/pam.c
+@@ -18,6 +18,8 @@
+ 
+ #include <sys/types.h>
+ #include <sys/wait.h>
++#include <sys/stat.h>
++#include <fcntl.h>
+ 
+ #include <err.h>
+ #include <errno.h>
+@@ -225,6 +227,42 @@
+ 	exit(status);
+ }
+ 
++#ifdef USE_TIMESTAMP
++static int
++persist_timeout(void)
++{
++	struct stat st;
++	char buf[32], *end;
++	long value;
++	ssize_t n;
++	int fd;
++
++	fd = open("/etc/doas-persist.conf", O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY);
++	if (fd == -1) {
++		if (errno == ENOENT)
++			return 300;
++		err(1, "doas-persist.conf");
++	}
++	if (fstat(fd, &st) == -1 || !S_ISREG(st.st_mode) || st.st_uid != 0 ||
++	    (st.st_mode & (S_IWGRP | S_IWOTH)) || st.st_size < 1 || st.st_size > 31)
++		errx(1, "invalid doas-persist.conf ownership, permissions or size");
++	do {
++		n = read(fd, buf, sizeof(buf) - 1);
++	} while (n == -1 && errno == EINTR);
++	close(fd);
++	if (n != st.st_size || n < 1 || memchr(buf, '\0', n) != NULL ||
++	    buf[0] < '0' || buf[0] > '9')
++		errx(1, "invalid doas persist timeout");
++	buf[n] = '\0';
++	errno = 0;
++	value = strtol(buf, &end, 10);
++	if (errno || value < 0 || value > 86400 ||
++	    (*end != '\0' && !(*end == '\n' && end[1] == '\0')))
++		errx(1, "doas persist timeout must be 0..86400 seconds");
++	return (int)value;
++}
++#endif
++
+ void
+ pamauth(const char *user, const char *myname, int interactive, int nopass, int persist)
+ {
+@@ -239,6 +277,7 @@
+ #ifdef USE_TIMESTAMP
+ 	int fd = -1;
+ 	int valid = 0;
++	int timeout = 300;
+ #else
+ 	(void) persist;
+ #endif
+@@ -269,7 +308,9 @@
+ 
+ #ifdef USE_TIMESTAMP
+ 	if (persist)
+-		fd = timestamp_open(&valid, 5 * 60);
++		timeout = persist_timeout();
++	if (persist && timeout > 0)
++		fd = timestamp_open(&valid, timeout);
+ 	if (fd != -1 && valid == 1)
+ 		nopass = 1;
+ #endif
+@@ -340,7 +381,7 @@
+ 
+ #ifdef USE_TIMESTAMP
+ 	if (fd != -1) {
+-		timestamp_set(fd, 5 * 60);
++		timestamp_set(fd, timeout);
+ 		close(fd);
+ 	}
+ #endif

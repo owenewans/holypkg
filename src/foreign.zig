@@ -13,7 +13,7 @@ pub fn debField(data: []const u8, key: []const u8) ?[]const u8 {
     return null;
 }
 
-pub fn stageDeb(c: Context, source: []const u8, provider: []const u8, stage: []const u8, privileged: bool) !void {
+pub fn stageDeb(c: Context, source: []const u8, provider: []const u8, stage: []const u8, options: archive.ExtractOptions) !void {
     const work = try c.temp();
     defer std.Io.Dir.cwd().deleteTree(c.io, work) catch {};
     const input = try c.absolute(source);
@@ -42,10 +42,11 @@ pub fn stageDeb(c: Context, source: []const u8, provider: []const u8, stage: []c
     const ca = try archive.normalize(c, control_path, control_work);
     for (ca.entries) |entry| if (entry.kind != '0' and entry.kind != '5') return error.InvalidDebControl;
     const control_root = try c.fmt("{s}/control", .{work});
-    try archive.extract(c, ca, control_root, false);
+    try archive.extract(c, ca, control_root, .{});
     const metadata = try c.read(try c.fmt("{s}/control", .{control_root}));
     const m: package.Metadata = .{
         .provider = provider,
+        .ownership = if (options.root_owner) "root" else "source-root",
         .name = debField(metadata, "Package") orelse return error.MissingPackageName,
         .version = debField(metadata, "Version") orelse return error.MissingPackageVersion,
         .architecture = debField(metadata, "Architecture") orelse return error.MissingArchitecture,
@@ -56,19 +57,21 @@ pub fn stageDeb(c: Context, source: []const u8, provider: []const u8, stage: []c
     try package.validate(m);
     try std.Io.Dir.cwd().createDir(c.io, stage, .default_dir);
     const a = try archive.normalize(c, data_path, work);
-    try archive.extract(c, a, try c.fmt("{s}/root", .{stage}), privileged);
+    try archive.extract(c, a, try c.fmt("{s}/root", .{stage}), options);
     try package.finishStage(c, stage, m, a.entries);
     try c.run(&.{ "cp", "-a", "--", control_root, try c.fmt("{s}/root/usr/doc/{s}/holypkg/debian-control", .{ stage, m.name }) });
 }
 
-pub fn stageRpm(c: Context, source: []const u8, provider: []const u8, stage: []const u8, privileged: bool) !void {
+pub fn stageRpm(c: Context, source: []const u8, provider: []const u8, stage: []const u8, options: archive.ExtractOptions) !void {
     const work = try c.temp();
     defer std.Io.Dir.cwd().deleteTree(c.io, work) catch {};
     const input = try c.absolute(source);
-    const raw = try c.capture(&.{ "rpm", "-qp", "--queryformat", "%{NAME}\n%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n%{ARCH}\n%{SUMMARY}\n", "--", input });
+    // repository signatures are checked before conversion; these are metadata queries.
+    const raw = try c.capture(&.{ "rpm", "--nosignature", "-qp", "--queryformat", "%{NAME}\n%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n%{ARCH}\n%{SUMMARY}\n", "--", input });
     var lines = std.mem.splitScalar(u8, raw, '\n');
     const m: package.Metadata = .{
         .provider = provider,
+        .ownership = if (options.root_owner) "root" else "source-root",
         .name = lines.next() orelse return error.MissingPackageName,
         .version = lines.next() orelse return error.MissingPackageVersion,
         .architecture = lines.next() orelse return error.MissingArchitecture,
@@ -77,19 +80,30 @@ pub fn stageRpm(c: Context, source: []const u8, provider: []const u8, stage: []c
         .sha256 = try c.checksum(input),
     };
     try package.validate(m);
-    const scripts = try c.capture(&.{ "rpm", "-qp", "--scripts", "--triggers", "--", input });
+    const scripts = try c.capture(&.{ "rpm", "--nosignature", "-qp", "--scripts", "--triggers", "--", input });
+    const filetriggers = try c.capture(&.{ "rpm", "--nosignature", "-qp", "--filetriggers", "--", input });
+    const capabilities = try c.capture(&.{ "rpm", "--nosignature", "-qp", "--queryformat", "[%{FILENAMES}\\t%{FILECAPS}\\n]", "--", input });
+    var cap_lines = std.mem.splitScalar(u8, capabilities, '\n');
+    while (cap_lines.next()) |line| {
+        const tab = std.mem.indexOfScalar(u8, line, '\t') orelse continue;
+        const cap = line[tab + 1 ..];
+        if (cap.len > 0 and !std.mem.eql(u8, cap, "(none)")) {
+            try c.print("RPM file capability requires manual handling: {s}\n", .{line});
+            return error.RpmCapabilitiesRequireManualHandling;
+        }
+    }
     // rpm2cpio only extracts payload; rpm is never asked to install a package.
     const payload = try c.fmt("{s}/payload.cpio", .{work});
     try c.saveOutput(&.{ "rpm2cpio", input }, payload);
     const a = try archive.normalize(c, payload, work);
     try std.Io.Dir.cwd().createDir(c.io, stage, .default_dir);
-    try archive.extract(c, a, try c.fmt("{s}/root", .{stage}), privileged);
+    try archive.extract(c, a, try c.fmt("{s}/root", .{stage}), options);
     try package.finishStage(c, stage, m, a.entries);
-    try c.write(try c.fmt("{s}/root/usr/doc/{s}/holypkg/rpm-scripts.txt", .{ stage, m.name }), scripts);
-    try c.write(try c.fmt("{s}/root/usr/doc/{s}/holypkg/rpm-info.txt", .{ stage, m.name }), try c.capture(&.{ "rpm", "-qpi", "--", input }));
+    try c.write(try c.fmt("{s}/root/usr/doc/{s}/holypkg/rpm-scripts.txt", .{ stage, m.name }), try c.fmt("{s}\n{s}", .{ scripts, filetriggers }));
+    try c.write(try c.fmt("{s}/root/usr/doc/{s}/holypkg/rpm-info.txt", .{ stage, m.name }), try c.capture(&.{ "rpm", "--nosignature", "-qpi", "--", input }));
 }
 
-pub fn stageGeneric(c: Context, source: []const u8, stage: []const u8, m: package.Metadata, prefix: []const u8, privileged: bool) !void {
+pub fn stageGeneric(c: Context, source: []const u8, stage: []const u8, m: package.Metadata, prefix: []const u8, options: archive.ExtractOptions) !void {
     try package.validate(m);
     if (!std.mem.eql(u8, prefix, "/") and (!std.mem.startsWith(u8, prefix, "/") or !sys.safePath(prefix[1..]))) return error.InvalidPrefix;
     const work = try c.temp();
@@ -99,11 +113,13 @@ pub fn stageGeneric(c: Context, source: []const u8, stage: []const u8, m: packag
     const relative = std.mem.trim(u8, prefix, "/");
     const root = try c.fmt("{s}/root", .{stage});
     const destination = if (relative.len == 0) root else try c.fmt("{s}/{s}", .{ root, relative });
-    try archive.extract(c, a, destination, privileged);
+    try archive.extract(c, a, destination, options);
     for (a.entries) |*entry| {
         if (relative.len > 0) entry.path = try c.fmt("{s}/{s}", .{ relative, entry.path });
     }
-    try package.finishStage(c, stage, m, a.entries);
+    var metadata = m;
+    metadata.ownership = if (options.root_owner) "root" else "source-root";
+    try package.finishStage(c, stage, metadata, a.entries);
 }
 
 test "debian fields" {

@@ -10,6 +10,8 @@ import subprocess
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--work', type=pathlib.Path, required=True)
 parser.add_argument('--mirror', default='https://slackware.osuosl.org/slackware64-current')
+parser.add_argument('--build-tools', action='store_true')
+parser.add_argument('--prepare-only', action='store_true')
 args = parser.parse_args()
 work = args.work.resolve()
 work.mkdir(parents=True, exist_ok=True)
@@ -65,6 +67,8 @@ ngtcp2 openssl-solibs libffi libxml2 binutils gnupg2 libgcrypt libgpg-error liba
 npth pinentry libcap libcap-ng gcc glibc make m4 autoconf automake libtool pkgconf
 python3 sqlite libtirpc readline expat rpm cpio libssh2 gnutls nettle libtasn1
 p11-kit lz4 lua icu4c cyrus-sasl kernel-headers elfutils lzlib'''.split()
+if args.build_tools:
+    names.extend('gcc-g++ cmake rust popt libuv bison flex ninja llvm libedit scdoc gettext-tools guile gc'.split())
 cache = work / 'current-packages'
 cache.mkdir(exist_ok=True)
 expected = {pathlib.Path(catalog[name]).name for name in names}
@@ -97,6 +101,8 @@ RUN upgradepkg --install-new /packages/aaa_glibc-solibs-*.txz && \\
 ''')
 image = 'localhost/holypkg-current-tests'
 run('podman', 'build', '-t', image, str(work))
+if args.prepare_only:
+    raise SystemExit(0)
 for test in ['archive', 'providers', 'formats', 'lifecycle', 'rootless']:
     options = ['--user', '1000:1000'] if test == 'rootless' else []
     with (work / (test + '.log')).open('w') as log:

@@ -1,0 +1,29 @@
+name: native packages
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  packages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
+      - run: python3 tests/slackware.py --build-tools --prepare-only --work "$RUNNER_TEMP/slackware-native"
+      - name: Fetch pinned upstream sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/sources" "$RUNNER_TEMP/packages"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/rpm-software-management/rpm/releases/download/rpm-6.1.0-release/rpm-6.1.0.tar.bz2 -o "$RUNNER_TEMP/sources/rpm-6.1.0.tar.bz2"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/rpm-software-management/rpm-sequoia/archive/8e0b76e1e75c83d7d8e6f38976b0c83b52ebe7ee.tar.gz -o "$RUNNER_TEMP/sources/rpm-sequoia-1.10.3.tar.gz"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/Duncaen/OpenDoas/archive/b96106b7e34ac591ae78b1684e9be3a265122463.tar.gz -o "$RUNNER_TEMP/sources/opendoas-b96106b.tar.gz"
+      - name: Build native Slackware package
+        run: |
+          podman run --rm --env SOURCES=/sources --env OUTPUT=/output --env WORK=/tmp/build --env JOBS=2 --env CARGO_BUILD_JOBS=2 -v "$PWD:/src:ro" -v "$RUNNER_TEMP/sources:/sources:ro" -v "$RUNNER_TEMP/packages:/output" localhost/holypkg-current-tests sh -c 'sh /src/recipes/rpm-tools.sh && installpkg /output/holypkg-rpm-tools-6.1.0-x86_64-1_owen.txz && python3 /src/tests/rpm-verifier.py /tmp/build/rpm-build/tools/rpmsign && WORK=/tmp/doas-build sh /src/recipes/doas.sh && installpkg /output/owendoas-6.8.2_b96106b-x86_64-1_owen.txz && python3 /src/tests/doas.py'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-packages-development
+          path: |
+            ${{ runner.temp }}/packages/*.txz
+            ${{ runner.temp }}/sources/*
+            ${{ runner.temp }}/slackware-native/snapshot.sha256

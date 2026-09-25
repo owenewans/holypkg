@@ -197,8 +197,14 @@ pub fn fetch(c: Context, candidate: *Candidate, o: Options, work: []const u8) ![
         // This disposable RPM keyring contains trust keys, never installed packages.
         const trust = try c.fmt("{s}/rpm-trust", .{work});
         try std.Io.Dir.cwd().createDirPath(c.io, trust);
-        try c.run(&.{ "rpmkeys", "--dbpath", trust, "--import", try c.absolute(o.keyring) });
-        try c.run(&.{ "rpmkeys", "--dbpath", trust, "--define", "_pkgverify_level all", "--define", "_pkgverify_flags 0", "--checksig", dest });
+        const native_helper = "/usr/libexec/holypkg-rpm/bin/rpmkeys";
+        const helper = std.Io.Dir.cwd().openFile(c.io, native_helper, .{}) catch null;
+        const rpmkeys = if (helper) |file| blk: {
+            file.close(c.io);
+            break :blk native_helper;
+        } else "rpmkeys";
+        try c.run(&.{ rpmkeys, "--dbpath", trust, "--import", try c.absolute(o.keyring) });
+        try c.run(&.{ rpmkeys, "--dbpath", trust, "--define", "_pkgverify_level all", "--define", "_pkgverify_flags 0", "--checksig", dest });
         candidate.metadata.signature_verified = true;
     }
     return dest;

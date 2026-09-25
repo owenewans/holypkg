@@ -23,7 +23,7 @@ const usage =
     \\holypkg url HTTPS_URL --name NAME --version VERSION --prefix PATH --sha256 HASH
     \\
     \\Options: --keyring FILE, --mirror URL, --output DIRECTORY,
-    \\         --allow-privileged, --install, --force, --release TAG
+    \\         --allow-privileged, --owner root, --install, --force, --release TAG
     \\
     \\No dependency resolution. No automatic foreign scripts. No package database.
     \\Unsigned URLs require --sha256. Generic archives require an explicit prefix.
@@ -52,6 +52,7 @@ const Options = struct {
     release: []const u8 = "latest",
     suite: ?[]const u8 = null,
     fingerprint: ?[]const u8 = null,
+    owner: ?[]const u8 = null,
 
     fn parse(c: sys.Context, args: []const []const u8) !Options {
         var o: Options = .{ .positional = &.{} };
@@ -87,7 +88,7 @@ const Options = struct {
                 if (i + 1 >= args.len or std.mem.startsWith(u8, args[i + 1], "--")) return error.MissingOptionValue;
                 i += 1;
                 const val = args[i];
-                const fields = .{ .{ "--provider", "provider" }, .{ "--repo", "repo" }, .{ "--mirror", "mirror" }, .{ "--keyring", "keyring" }, .{ "--output", "output" }, .{ "--root", "root" }, .{ "--name", "name" }, .{ "--version", "version" }, .{ "--prefix", "prefix" }, .{ "--sha256", "sha256" }, .{ "--asset", "asset" }, .{ "--release", "release" }, .{ "--suite", "suite" }, .{ "--fingerprint", "fingerprint" } };
+                const fields = .{ .{ "--provider", "provider" }, .{ "--repo", "repo" }, .{ "--mirror", "mirror" }, .{ "--keyring", "keyring" }, .{ "--output", "output" }, .{ "--root", "root" }, .{ "--name", "name" }, .{ "--version", "version" }, .{ "--prefix", "prefix" }, .{ "--sha256", "sha256" }, .{ "--asset", "asset" }, .{ "--release", "release" }, .{ "--suite", "suite" }, .{ "--fingerprint", "fingerprint" }, .{ "--owner", "owner" } };
                 var recognized = false;
                 inline for (fields) |field| {
                     if (std.mem.eql(u8, arg, field[0])) {
@@ -109,12 +110,14 @@ fn is(name: []const u8, wanted: []const u8) bool {
 }
 
 fn convert(c: sys.Context, source: []const u8, provider: []const u8, stage: []const u8, o: Options, metadata: ?package.Metadata) !void {
+    if (o.owner) |owner| if (!is(owner, "root")) return error.UnsupportedOwnershipRule;
+    const extraction: archive.ExtractOptions = .{ .privileged = o.privileged, .root_owner = o.owner != null };
     if (is(provider, "arch") or is(provider, "artix")) {
-        try package.stagePacman(c, source, provider, stage, o.privileged, metadata);
+        try package.stagePacman(c, source, provider, stage, extraction, metadata);
     } else if (is(provider, "debian") or is(provider, "ubuntu")) {
-        try foreign.stageDeb(c, source, provider, stage, o.privileged);
+        try foreign.stageDeb(c, source, provider, stage, extraction);
     } else if (is(provider, "fedora") or is(provider, "opensuse")) {
-        try foreign.stageRpm(c, source, provider, stage, o.privileged);
+        try foreign.stageRpm(c, source, provider, stage, extraction);
     } else if (is(provider, "github") or is(provider, "url")) {
         const m: package.Metadata = metadata orelse .{
             .provider = provider,
@@ -124,12 +127,14 @@ fn convert(c: sys.Context, source: []const u8, provider: []const u8, stage: []co
             .source = try c.absolute(source),
             .sha256 = try c.checksum(source),
         };
-        try foreign.stageGeneric(c, source, stage, m, o.prefix orelse return error.PrefixRequired, o.privileged);
+        try foreign.stageGeneric(c, source, stage, m, o.prefix orelse return error.PrefixRequired, extraction);
     } else return error.UnknownProvider;
     if (metadata) |m| {
         const actual = try package.readStage(c, stage);
         if (!is(actual.name, m.name) or !is(actual.version, m.version) or !is(actual.sha256, m.sha256)) return error.RepositoryMetadataMismatch;
-        const json = try std.json.Stringify.valueAlloc(c.a, m, .{ .whitespace = .indent_2 });
+        var provenance = m;
+        provenance.ownership = actual.ownership;
+        const json = try std.json.Stringify.valueAlloc(c.a, provenance, .{ .whitespace = .indent_2 });
         try c.write(try c.fmt("{s}/package.json", .{stage}), json);
         try c.write(try c.fmt("{s}/root/usr/doc/{s}/holypkg/provenance.json", .{ stage, m.name }), json);
     }
@@ -234,6 +239,7 @@ fn execute(c: sys.Context, args: []const []const u8) !void {
         if (!std.ascii.eqlIgnoreCase(expected, digest)) return error.ChecksumMismatch;
         const m: package.Metadata = .{
             .provider = action,
+            .repository = if (is(action, "github")) try c.fmt("{s}@{s}", .{ p[1], o.release }) else "direct",
             .name = o.name orelse return error.NameRequired,
             .version = o.version orelse return error.VersionRequired,
             .architecture = "x86_64",

@@ -31,8 +31,8 @@ def make(path, extra=()):
                 archive.addfile(entry, io.BytesIO(data))
 
 
-def convert(source, stage):
-    return subprocess.run([binary, "convert", str(source), "--provider", "artix", "--stage", str(stage)], capture_output=True, text=True)
+def convert(source, stage, *options):
+    return subprocess.run([binary, "convert", str(source), "--provider", "artix", "--stage", str(stage), *options], capture_output=True, text=True)
 
 
 with tempfile.TemporaryDirectory(prefix="holypkg-test-") as tmp:
@@ -67,6 +67,23 @@ with tempfile.TemporaryDirectory(prefix="holypkg-test-") as tmp:
         make(source, entries)
         result = convert(source, tmp / name)
         assert result.returncode != 0, name + " accepted"
+        assert convert(source, tmp / (name + "-root"), "--owner", "root").returncode != 0
         assert not (tmp / "escaped").exists()
         print("PASS", name)
     print("PASS metadata, symlinks, stage preservation and foreign script quarantine")
+    source = tmp / "ownership.tar"
+    make(source)
+    with tarfile.open(source, "a", format=tarfile.PAX_FORMAT) as output:
+        entry = tarfile.TarInfo("usr/share/owned")
+        entry.pax_headers = {"uid": "10000000000", "gid": "10000000001"}
+        output.addfile(entry, io.BytesIO())
+        output.addfile(tarfile.TarInfo("usr/share/root"), io.BytesIO())
+    assert convert(source, tmp / "ownership-rejected").returncode != 0
+    stage = tmp / "ownership-explicit"
+    result = convert(source, stage, "--owner", "root")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads((stage / "package.json").read_text())["ownership"] == "root"
+    original = json.loads((stage / "root/usr/doc/sample/holypkg/source-files.json").read_text())
+    assert next(e for e in original if e["path"] == "usr/share/owned")["uid"] == 10000000000
+    assert next(e for e in original if e["path"] == "usr/share/root")["uid"] == 0
+    print("PASS explicit ownership rule and PAX ownership provenance")

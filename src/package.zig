@@ -15,6 +15,7 @@ pub const Metadata = struct {
     source_checksum: []const u8 = "",
     source_checksum_algorithm: []const u8 = "sha256",
     signature_verified: bool = false,
+    ownership: []const u8 = "source-root",
     description: []const u8 = "foreign binary package",
 };
 
@@ -89,6 +90,7 @@ pub fn finishStage(c: Context, stage: []const u8, m: Metadata, entries: []archiv
     const json = try std.json.Stringify.valueAlloc(c.a, m, .{ .whitespace = .indent_2 });
     try c.write(try c.fmt("{s}/package.json", .{stage}), json);
     try c.write(try c.fmt("{s}/{s}/provenance.json", .{ root, doc }), json);
+    try c.write(try c.fmt("{s}/{s}/source-files.json", .{ root, doc }), try std.json.Stringify.valueAlloc(c.a, entries, .{ .whitespace = .indent_2 }));
     const reserved = [_][]const u8{ ".PKGINFO", ".BUILDINFO", ".MTREE", ".INSTALL", ".CHANGELOG", "install" };
     var payload: std.Io.Writer.Allocating = .init(c.a);
     for (entries) |entry| {
@@ -119,7 +121,7 @@ pub fn finishStage(c: Context, stage: []const u8, m: Metadata, entries: []archiv
     try c.print("stage: {s}\npackage: {s}\n", .{ stage, try filename(c, m) });
 }
 
-pub fn stagePacman(c: Context, input: []const u8, provider: []const u8, stage: []const u8, privileged: bool, provenance: ?Metadata) !void {
+pub fn stagePacman(c: Context, input: []const u8, provider: []const u8, stage: []const u8, options: archive.ExtractOptions, provenance: ?Metadata) !void {
     const work = try c.temp();
     defer std.Io.Dir.cwd().deleteTree(c.io, work) catch {};
     // mkdir fails if the stage already exists; never overlay a previous tree.
@@ -133,9 +135,10 @@ pub fn stagePacman(c: Context, input: []const u8, provider: []const u8, stage: [
         }
     }
     if (!metadata_found) return error.MissingPackageMetadata;
-    try archive.extract(c, a, try c.fmt("{s}/root", .{stage}), privileged);
+    try archive.extract(c, a, try c.fmt("{s}/root", .{stage}), options);
     const metadata = try c.read(try c.fmt("{s}/root/.PKGINFO", .{stage}));
     var m = try parsePacman(metadata, provider, try c.absolute(input), try c.checksum(input));
+    m.ownership = if (options.root_owner) "root" else "source-root";
     if (provenance) |p| {
         if (!std.mem.eql(u8, p.name, m.name) or !std.mem.eql(u8, p.version, m.version) or !std.mem.eql(u8, p.sha256, m.sha256)) return error.RepositoryMetadataMismatch;
         m.repository = p.repository;
