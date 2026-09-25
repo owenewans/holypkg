@@ -166,7 +166,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: sudo apt-get update && sudo apt-get install -y podman gnupg curl
       - run: |
-          printf 'gcc-g++\ncmake\nlibuv\ngperf\n' > "$RUNNER_TEMP/telegram.packages"
+          printf 'gcc-g++\ncmake\nlibuv\ngperf\nflex\n' > "$RUNNER_TEMP/telegram.packages"
           python3 tests/slackware.py --profile "$RUNNER_TEMP/telegram.packages" --prepare-only --work "$RUNNER_TEMP/slackware-telegram"
       - name: Fetch pinned Telegram sources and binary
         run: |
